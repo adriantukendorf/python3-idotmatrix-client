@@ -1117,7 +1117,7 @@ class MainWindow(QWidget):
         self.output_str += stdout
         self.configuration_page.console_output.appendPlainText(stdout)
 
-        device_name_pattern = re.compile(r"found device ([\dA-F:]+) with name (\S+)")
+        device_name_pattern = re.compile(r"found device ([\dA-F:-]+) with name (\S+)")
         matches = device_name_pattern.findall(stdout)
         if matches:
             self.configuration_page.device_list.clear()
