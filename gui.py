@@ -542,7 +542,7 @@ class PixelPaintDialog(QDialog):
     async def clear_device(self):
         # Fullscreen black
         await ConnectionManager().connectByAddress(self.mac_address)
-        await FullscreenColor().setFullscreenColor(0, 0, 0)
+        await FullscreenColor().setMode(0, 0, 0)
 
     def update_cell_style(self, row, col):
         color = self.grid[row][col]
@@ -890,7 +890,7 @@ class DevicePage(QWidget):
 
     async def set_fullscreen_color_action(self, r, g, b):
         await self.ensure_connection()
-        await FullscreenColor().setFullscreenColor(r, g, b)
+        await FullscreenColor().setMode(r, g, b)
         self.log(f"Fullscreen Color Set: {r},{g},{b}")
 
     def color_control(self):
