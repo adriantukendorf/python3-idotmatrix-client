@@ -496,44 +496,47 @@ class PixelPaintDialog(QDialog):
     
     @qasync.asyncSlot()
     async def send_grid(self):
-        commands = []
-        # Optimization: send only colored pixels, but sending all might be safer for clearing.
-        # Actually Fullscreen Color 0,0,0 is faster for clear, but for partial paint we need to be careful.
-        # For now, implementing pixel by pixel sending is very slow over BLE if not batched.
-        # The connection manager sends chunks, but we should batch locally if possible.
-        # The idotmatrix library doesn't seem to have a "batch pixel" API exposed in Common?
-        # Checked library: No explicitly exposed bulk pixel setter.
-        # However, we can construct the command manually and send it via connection manager?
-        # Or just loop. Since we have persistent connection, it will be faster than before.
+        import tempfile
+        import os
+        from PIL import Image
         
-        # We need to connect first
+        # Connect first
         conn = ConnectionManager()
         await conn.connectByAddress(self.mac_address)
         
-        # Note: Sending 1024 packets will still be slow.
-        # The library likely needs a way to send bulk pixels.
-        # For this refactor, we stick to the existing logic but using the persistent connection.
-        
-        # Wait, the previous logic was constructing "--pixel-color" arguments.
-        # CMD class in cmd.py parses these.
-        # We need to implement what CMD does for pixel-color.
-        # cmd.py: await Graffiti().setPixel(x, y, r, g, b)
-        # We need to import Graffiti.
-        
-        from idotmatrix.modules.graffiti import Graffiti
-        graffiti = Graffiti()
-        
+        # Create a new 32x32 RGB image
+        img = Image.new("RGB", (self.grid_size, self.grid_size), "black")
+        pixels = img.load()
+
         for row in range(self.grid_size):
             for col in range(self.grid_size):
                 color = self.grid[row][col]
-                # Send only non-white/non-black? Or send all?
-                # Previous logic: if color != White
-                if color != QColor(255, 255, 255):
-                    # In previous code, white was considered "empty/off" probably?
-                    await graffiti.setPixel(col, row, color.red(), color.green(), color.blue())
-                    # Minimal delay might be needed or handled by connection manager
-                    
-        # QMessageBox.information(self, 'Sent', 'Grid sent to device.') # Optional
+                # Default "white" in GUI was treated as empty/black on device?
+                # The user paints on white background.
+                # If color is white (255,255,255), should we send white or black?
+                # In original code: if color != White: send color. So White was ignored -> Black.
+                if color == QColor(255, 255, 255):
+                    pixels[col, row] = (0, 0, 0)
+                else:
+                    pixels[col, row] = (color.red(), color.green(), color.blue())
+
+        # Save to a temporary file
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            img.save(tmp.name)
+            temp_path = tmp.name
+
+        try:
+            # Upload the image
+            # We use uploadUnprocessed because we generated it exactly 32x32
+            await DeviceImage().setMode(1)
+            await DeviceImage().uploadUnprocessed(temp_path)
+            # QMessageBox.information(self, 'Sent', 'Pixel Art sent to device.') # Optional feedback
+        except Exception as e:
+            print(f"Error uploading pixel art: {e}")
+            QMessageBox.warning(self, 'Error', f"Failed to send: {e}")
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
     @qasync.asyncSlot()
     async def clear_device(self):
@@ -885,17 +888,19 @@ class DevicePage(QWidget):
             await Countdown().setMode(options.index(option), minutes, seconds)
             self.log(f"Countdown: {option}")
 
-    @qasync.asyncSlot()
-    async def color_control(self):
+    async def set_fullscreen_color_action(self, r, g, b):
+        await self.ensure_connection()
+        await FullscreenColor().setFullscreenColor(r, g, b)
+        self.log(f"Fullscreen Color Set: {r},{g},{b}")
+
+    def color_control(self):
         dialog = ColorControlDialog(self, self.mac_address)
         # Note: dialog.exec_() is blocking. We can't await it easily.
         # But since it's a modal dialog, it blocks interaction anyway.
         if dialog.exec_() == QDialog.Accepted:
             if dialog.selected_color and not dialog.is_pixel_paint:
                 r, g, b = dialog.selected_color.red(), dialog.selected_color.green(), dialog.selected_color.blue()
-                await self.ensure_connection()
-                await FullscreenColor().setFullscreenColor(r, g, b)
-                self.log(f"Fullscreen Color Set: {r},{g},{b}")
+                asyncio.create_task(self.set_fullscreen_color_action(r, g, b))
             elif dialog.is_pixel_paint:
                  # Open pixel paint
                  self.open_pixel_paint_dialog(self.mac_address)
