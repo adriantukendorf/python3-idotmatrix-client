@@ -785,19 +785,21 @@ class DevicePage(QWidget):
         await Common().reset()
         self.log("Device Reset")
 
-    @qasync.asyncSlot()
-    async def clock_control(self):
+    async def set_clock_action(self, clock_style, show_date, show_24hr, color):
+        await self.ensure_connection()
+        style_idx = self.clock_styles.index(clock_style)
+        r = color.red() if color else 255
+        g = color.green() if color else 255
+        b = color.blue() if color else 255
+        await Clock().setMode(style_idx, show_date, show_24hr, r, g, b)
+        self.log(f"Set Clock Style: {clock_style}")
+
+    def clock_control(self):
         dialog = ClockStyleDialog(self)
         clock_style, show_date, show_24hr, color, ok_pressed = dialog.get_options()
 
         if ok_pressed:
-            await self.ensure_connection()
-            style_idx = self.clock_styles.index(clock_style)
-            r = color.red() if color else 255
-            g = color.green() if color else 255
-            b = color.blue() if color else 255
-            await Clock().setMode(style_idx, show_date, show_24hr, r, g, b)
-            self.log(f"Set Clock Style: {clock_style}")
+            asyncio.create_task(self.set_clock_action(clock_style, show_date, show_24hr, color))
 
     @qasync.asyncSlot()
     async def sync_time(self):
@@ -806,66 +808,74 @@ class DevicePage(QWidget):
         await Common().setTime(now.year, now.month, now.day, now.hour, now.minute, now.second)
         self.log("Time Synced")
 
-    @qasync.asyncSlot()
-    async def set_time(self):
+    async def set_time_action(self, dt):
+        try:
+             await self.ensure_connection()
+             await Common().setTime(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
+             self.log(f"Time Set: {dt}")
+        except Exception as e:
+             self.log(f"Failed to set time: {e}")
+
+    def set_time(self):
         time_str, ok_pressed = QInputDialog.getText(self, "Set Time", "Enter the time (DD-MM-YYYY-HH:MM:SS):")
         if ok_pressed:
             try:
                 dt = datetime.strptime(time_str, "%d-%m-%Y-%H:%M:%S")
-                await self.ensure_connection()
-                await Common().setTime(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
-                self.log(f"Time Set: {dt}")
+                asyncio.create_task(self.set_time_action(dt))
             except ValueError:
                 self.log("Invalid time format.")
 
-    @qasync.asyncSlot()
-    async def set_text(self):
+    async def set_text_action(self, settings):
+         text, text_size, text_mode, text_speed, text_color_mode_index, text_color, text_bg_mode_index, text_bg_color = settings
+         
+         await self.ensure_connection()
+         
+         r = text_color.red() if text_color else 255
+         g = text_color.green() if text_color else 255
+         b = text_color.blue() if text_color else 255
+         
+         bg_r = text_bg_color.red() if text_bg_color else 0
+         bg_g = text_bg_color.green() if text_bg_color else 0
+         bg_b = text_bg_color.blue() if text_bg_color else 0
+         
+         await Text().setMode(
+             text=text,
+             font_size=text_size,
+             text_mode=text_mode,
+             speed=text_speed,
+             text_color_mode=text_color_mode_index,
+             text_color=(r, g, b),
+             text_bg_mode=text_bg_mode_index,
+             text_bg_color=(bg_r, bg_g, bg_b)
+         )
+         self.log(f"Text Set: {text}")
+
+    def set_text(self):
         dialog = TextStyleDialog(self)
         settings = dialog.get_settings()
         if settings is not None:
-            text, text_size, text_mode, text_speed, text_color_mode_index, text_color, text_bg_mode_index, text_bg_color = settings
-            
-            await self.ensure_connection()
-            
-            r = text_color.red() if text_color else 255
-            g = text_color.green() if text_color else 255
-            b = text_color.blue() if text_color else 255
-            
-            bg_r = text_bg_color.red() if text_bg_color else 0
-            bg_g = text_bg_color.green() if text_bg_color else 0
-            bg_b = text_bg_color.blue() if text_bg_color else 0
-            
-            # text_mode in logic seems to match index directly? 
-            # Looking at dropdown: ["", "Left", ...] -> 0 is empty, 1 is Left.
-            # Library likely expects int.
-            
-            await Text().setMode(
-                text=text,
-                font_size=text_size,
-                # font_path=None, # Use default
-                text_mode=text_mode,
-                speed=text_speed,
-                text_color_mode=text_color_mode_index,
-                text_color=(r, g, b),
-                text_bg_mode=text_bg_mode_index,
-                text_bg_color=(bg_r, bg_g, bg_b)
-            )
-            self.log(f"Text Set: {text}")
+             asyncio.create_task(self.set_text_action(settings))
         else:
             print("No text settings were provided.")
 
-    @qasync.asyncSlot()
-    async def chronograph_control(self):
+    async def chronograph_control_action(self, option, index):
+        await self.ensure_connection()
+        await Chronograph().setMode(index)
+        self.log(f"Chronograph: {option}")
+
+    def chronograph_control(self):
         options = ['Reset', '(Re)Start', 'Pause', 'Continue after Pause']
         default_index = 1
         option, ok_pressed = QInputDialog.getItem(self, "Stop Watch", "Select an option:", options, default_index, False)                            
         if ok_pressed:
-            await self.ensure_connection()
-            await Chronograph().setMode(options.index(option))
-            self.log(f"Chronograph: {option}")
+            asyncio.create_task(self.chronograph_control_action(option, options.index(option)))
 
-    @qasync.asyncSlot()
-    async def countdown_control(self, dummy): # lambda passed 1
+    async def countdown_control_action(self, option, index, minutes, seconds):
+        await self.ensure_connection()
+        await Countdown().setMode(index, minutes, seconds)
+        self.log(f"Countdown: {option}")
+
+    def countdown_control(self, dummy): # lambda passed 1
         options = ['Disable', 'Start', 'Pause', 'Restart']
         option, ok_pressed = QInputDialog.getItem(self, "Countdown Control",
                                                 "Select an option:", options, 0, False)
@@ -884,9 +894,7 @@ class DevicePage(QWidget):
                     pass
 
         if ok_pressed:
-            await self.ensure_connection()
-            await Countdown().setMode(options.index(option), minutes, seconds)
-            self.log(f"Countdown: {option}")
+            asyncio.create_task(self.countdown_control_action(option, options.index(option), minutes, seconds))
 
     async def set_fullscreen_color_action(self, r, g, b):
         await self.ensure_connection()
@@ -914,8 +922,14 @@ class DevicePage(QWidget):
         dialog = ScoreboardDialog(self)
         dialog.exec_()
 
-    @qasync.asyncSlot()
-    async def set_image(self):
+    async def set_image_action(self, file_path, image_size):
+        await self.ensure_connection()
+        await DeviceImage().setMode(1)
+        self.log("Uploading processed image...")
+        await DeviceImage().uploadProcessed(file_path, image_size)
+        self.log("Image Uploaded")
+
+    def set_image(self):
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Image", "", "PNG Files (*.png);;All Files (*)", options=options)
@@ -935,14 +949,16 @@ class DevicePage(QWidget):
 
             if size_dialog.exec_() == QDialog.Accepted:
                 image_size = int(size_combo.currentText().split("x")[0])
-                await self.ensure_connection()
-                await DeviceImage().setMode(1)
-                self.log("Uploading processed image...")
-                await DeviceImage().uploadProcessed(file_path, image_size)
-                self.log("Image Uploaded")
+                asyncio.create_task(self.set_image_action(file_path, image_size))
 
-    @qasync.asyncSlot()
-    async def set_gif(self):
+    async def set_gif_action(self, file_path, image_size):
+        await self.ensure_connection()
+        await Gif().setMode(1)
+        self.log("Uploading GIF...")
+        await Gif().uploadProcessed(file_path, image_size)
+        self.log("GIF Uploaded")
+
+    def set_gif(self):
         confirmation = QMessageBox.question(self, "GIF Notice", "GIFs are processed. Closer to 32x32 works better.",
                                             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
 
@@ -954,37 +970,37 @@ class DevicePage(QWidget):
             if file_path:
                 # Assuming 32x32 default or ask? Code was asking.
                 image_size = 32 # Simplification
-                await self.ensure_connection()
-                await Gif().setMode(1)
-                self.log("Uploading GIF...")
-                await Gif().uploadProcessed(file_path, image_size)
-                self.log("GIF Uploaded")
+                asyncio.create_task(self.set_gif_action(file_path, image_size))
 
-    @qasync.asyncSlot()
-    async def set_image_unprocessed(self):
+    async def set_image_unprocessed_action(self, file_path):
+        await self.ensure_connection()
+        await DeviceImage().setMode(1)
+        self.log("Uploading unprocessed image...")
+        await DeviceImage().uploadUnprocessed(file_path)
+        self.log("Image Uploaded")
+
+    def set_image_unprocessed(self):
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Image", "", "PNG Files (*.png);;All Files (*)", options=options)
 
         if file_path:
-            await self.ensure_connection()
-            await DeviceImage().setMode(1)
-            self.log("Uploading unprocessed image...")
-            await DeviceImage().uploadUnprocessed(file_path)
-            self.log("Image Uploaded")
+            asyncio.create_task(self.set_image_unprocessed_action(file_path))
 
-    @qasync.asyncSlot()
-    async def set_gif_unprocessed(self):
+    async def set_gif_unprocessed_action(self, file_path):
+        await self.ensure_connection()
+        await Gif().setMode(1)
+        self.log("Uploading unprocessed GIF...")
+        await Gif().uploadUnprocessed(file_path)
+        self.log("GIF Uploaded")
+
+    def set_gif_unprocessed(self):
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
         file_path, _ = QFileDialog.getOpenFileName(self, "Select GIF", "", "GIF Files (*.gif);;All Files (*)", options=options)
 
         if file_path:
-            await self.ensure_connection()
-            await Gif().setMode(1)
-            self.log("Uploading unprocessed GIF...")
-            await Gif().uploadUnprocessed(file_path)
-            self.log("GIF Uploaded")
+            asyncio.create_task(self.set_gif_unprocessed_action(file_path))
             
     def set_weather_api_key(self):
         response, responded = QInputDialog.getText(self, "API Key", "Enter your 'https://weatherapi.com' api key")
@@ -1173,9 +1189,9 @@ class MainWindow(QWidget):
             device_button.setFixedSize(150, 50)
             self.homepage_layout.addWidget(device_button)
             self.device_buttons[mac_address] = device_button
+            device_button.clicked.connect(self.show_device_page)
         else:
             QMessageBox.warning(self, 'Device Already Added', f'Device with MAC address "{mac_address}" is already added to the homepage.')
-        device_button.clicked.connect(self.show_device_page)
 
     def save_device_settings(self):
         settings = QSettings("MyCompany", "iDotMatrixController")
