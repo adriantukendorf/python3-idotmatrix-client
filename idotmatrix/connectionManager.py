@@ -29,10 +29,10 @@ class ConnectionManager(metaclass=SingletonMeta):
         self.client: Optional[BleakClient] = None
 
     @staticmethod
-    async def scan() -> List[str]:
+    async def scan() -> List[tuple[str, str]]:
         logging.info("scanning for iDotMatrix bluetooth devices...")
         devices = await BleakScanner.discover(return_adv=True)
-        filtered_devices: List[str] = []
+        filtered_devices: List[tuple[str, str]] = []
         for key, (device, adv) in devices.items():
             if (
                 isinstance(adv, AdvertisementData)
@@ -40,7 +40,7 @@ class ConnectionManager(metaclass=SingletonMeta):
                 and str(adv.local_name).startswith(BLUETOOTH_DEVICE_NAME)
             ):
                 logging.info(f"found device {key} with name {adv.local_name}")
-                filtered_devices.append(device.address)
+                filtered_devices.append((device.address, adv.local_name))
         return filtered_devices
 
     async def connectByAddress(self, address: str) -> None:
