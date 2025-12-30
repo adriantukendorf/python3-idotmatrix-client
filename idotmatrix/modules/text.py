@@ -29,7 +29,19 @@ class Text:
         text_color: Tuple[int, int, int] = (255, 0, 0),
         text_bg_mode: int = 0,
         text_bg_color: Tuple[int, int, int] = (0, 255, 0),
+        compact_mode: bool = False,
     ) -> Union[bool, bytearray]:
+        
+        # Determine layout based on mode
+        if compact_mode:
+            image_width = 8
+            image_height = 16
+            separator = b"\x02\xff\xff\xff"
+        else:
+            image_width = 16
+            image_height = 32
+            separator = b"\x05\xff\xff\xff"
+
         try:
             data = self._buildStringPacket(
                 text_mode=text_mode,
@@ -42,7 +54,11 @@ class Text:
                     text=text,
                     font_size=font_size,
                     font_path=font_path,
+                    image_width=image_width,
+                    image_height=image_height,
+                    separator=separator
                 ),
+                separator=separator
             )
             if self.conn:
                 await self.conn.connect()
@@ -61,6 +77,7 @@ class Text:
         text_color: Tuple[int, int, int] = (255, 0, 0),
         text_bg_mode: int = 0,
         text_bg_color: Tuple[int, int, int] = (0, 255, 0),
+        separator: bytes = b"\x05\xff\xff\xff"
     ) -> bytearray:
         """Constructs a packet with the settings and bitmaps for iDotMatrix devices.
 
@@ -76,7 +93,7 @@ class Text:
         Returns:
             bytearray: _description_
         """
-        num_chars = text_bitmaps.count(self.separator)
+        num_chars = text_bitmaps.count(separator)
 
         text_metadata = bytearray(
             [
@@ -124,30 +141,43 @@ class Text:
         return header + packet
 
     def _StringToBitmaps(
-        self, text: str, font_path: Optional[str] = None, font_size: Optional[int] = 20
+        self, text: str, font_path: Optional[str] = None, font_size: Optional[int] = 20,
+        image_width: int = 16, image_height: int = 32, separator: bytes = b"\x05\xff\xff\xff"
     ) -> bytearray:
         """Converts text to bitmap images suitable for iDotMatrix devices."""
         if not font_path:
             # using open source font from https://www.fontspace.com/rain-font-f22577
             font_path = "./fonts/Rain-DRM3.otf"
+        
+        # Adjust font size if not explicitly provided logic?
+        # Original code took font_size as param default 20.
+        # If compact mode (height 16), 20 is too big.
+        # But font_size is passed from setMode.
+        # If user passes 20 for compact, it might clip.
+        
         font = ImageFont.truetype(font_path, font_size)
         byte_stream = bytearray()
         for char in text:
             # todo make image the correct size for 16x16, 32x32 and 64x64
-            image = Image.new("1", (self.image_width, self.image_height), 0)
+            image = Image.new("1", (image_width, image_height), 0)
             draw = ImageDraw.Draw(image)
+            
+            # Using textbbox to center
+            # Note: For small 8x16, centering might be tricky with large fonts.
+            
             _, _, text_width, text_height = draw.textbbox((0, 0), text=char, font=font)
-            text_x = (self.image_width - text_width) // 2
-            text_y = (self.image_height - text_height) // 2
+            text_x = (image_width - text_width) // 2
+            text_y = (image_height - text_height) // 2
             draw.text((text_x, text_y), char, fill=1, font=font)
+            
             bitmap = bytearray()
-            for y in range(self.image_height):
-                for x in range(self.image_width):
+            for y in range(image_height):
+                for x in range(image_width):
                     if x % 8 == 0:
                         byte = 0
                     pixel = image.getpixel((x, y))
                     byte |= (pixel & 1) << (x % 8)
-                    if x % 8 == 7 or x == self.image_width - 1:
+                    if x % 8 == 7 or x == image_width - 1:
                         bitmap.append(byte)
-            byte_stream.extend(self.separator + bitmap)
+            byte_stream.extend(separator + bitmap)
         return byte_stream

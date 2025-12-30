@@ -196,6 +196,13 @@ class TextStyleDialog(QDialog):
         self.text_bg_color_button.clicked.connect(self.choose_bg_color)
         self.layout.addWidget(self.text_bg_color_button)
 
+        # Text Layout
+        self.layout_label = QLabel('Layout/Spacing:')
+        self.layout_combo = QComboBox(self)
+        self.layout_combo.addItems(["Standard (16x32)", "Compact (8x16) - Tighter Spacing"])
+        self.layout.addWidget(self.layout_label)
+        self.layout.addWidget(self.layout_combo)
+
         # Dialog buttons
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
         self.button_box.accepted.connect(self.accept)
@@ -216,6 +223,7 @@ class TextStyleDialog(QDialog):
 
     def get_settings(self):
         if self.exec_() == QDialog.Accepted:
+            is_compact = self.layout_combo.currentIndex() == 1
             return (
                 self.text_input.text(),
                 int(self.text_size_combo.currentText()),
@@ -225,6 +233,7 @@ class TextStyleDialog(QDialog):
                 self.selected_text_color,
                 self.text_bg_mode_combo.currentIndex(),
                 self.selected_bg_color,
+                is_compact
             )
         else:
             return None
@@ -826,7 +835,7 @@ class DevicePage(QWidget):
                 self.log("Invalid time format.")
 
     async def set_text_action(self, settings):
-         text, text_size, text_mode, text_speed, text_color_mode_index, text_color, text_bg_mode_index, text_bg_color = settings
+         text, text_size, text_mode, text_speed, text_color_mode_index, text_color, text_bg_mode_index, text_bg_color, is_compact = settings
          
          await self.ensure_connection()
          
@@ -846,7 +855,8 @@ class DevicePage(QWidget):
              text_color_mode=text_color_mode_index,
              text_color=(r, g, b),
              text_bg_mode=text_bg_mode_index,
-             text_bg_color=(bg_r, bg_g, bg_b)
+             text_bg_color=(bg_r, bg_g, bg_b),
+             compact_mode=is_compact
          )
          self.log(f"Text Set: {text}")
 
