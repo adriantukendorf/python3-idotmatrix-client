@@ -664,6 +664,7 @@ class DevicePage(QWidget):
         self.clock_styles = ['Default', 'Christmas', 'Racing', 'Inverted Full Screen',
                              'Animated Hourglass', 'Frame 1', 'Frame 2', 'Frame 3']
         self.weatherapi_api_key = None
+        self.conn_lock = asyncio.Lock()
         self.init_ui()
         self.flip_screen_state = False
 
@@ -762,16 +763,22 @@ class DevicePage(QWidget):
         asyncio.create_task(ConnectionManager().disconnect())
 
     async def ensure_connection(self):
-        self.log(f" ensuring connection to {self.mac_address}...")
-        conn = ConnectionManager()
-        if not conn.address or conn.address != self.mac_address:
-             if conn.client and conn.client.is_connected:
-                 self.log("Disconnecting from previous device...")
-                 await conn.disconnect()
-             await conn.connectByAddress(self.mac_address)
-        elif not conn.client or not conn.client.is_connected:
-             await conn.connectByAddress(self.mac_address)
-        self.log("Connected.")
+        async with self.conn_lock:
+            conn = ConnectionManager()
+            # Check if already connected to correct address
+            if conn.client and conn.client.is_connected and conn.address == self.mac_address:
+                return
+
+            self.log(f" ensuring connection to {self.mac_address}...")
+            
+            if not conn.address or conn.address != self.mac_address:
+                 if conn.client and conn.client.is_connected:
+                     self.log("Disconnecting from previous device...")
+                     await conn.disconnect()
+                 await conn.connectByAddress(self.mac_address)
+            elif not conn.client or not conn.client.is_connected:
+                 await conn.connectByAddress(self.mac_address)
+            self.log("Connected.")
 
     def log(self, message):
         self.console_output.appendPlainText(message)
